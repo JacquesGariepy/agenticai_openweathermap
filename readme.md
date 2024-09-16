@@ -88,8 +88,7 @@ To access weather data using the OpenWeatherMap API, you need to **register for 
 3. **Install dependencies**:
    Install the necessary dependencies using `conda` and `pip`:
    ```bash
-   conda install numpy requests
-   pip install pydantic retry autogen
+   conda install pydantic retry autogen numpy requests
    ```
 
 4. **Set up OpenWeatherMap API key**:
