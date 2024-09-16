@@ -30,16 +30,23 @@ class Config(BaseModel):
     num_states: int
     num_actions: int
     episodes: int
+    max_steps_per_episode: int
     save_interval: int
+    log_interval: int
     load_path: Optional[str] = None
     latitude: float
     longitude: float
-    openweathermap_url: str = "http://api.openweathermap.org/data/2.5/weather"
-    max_calls_per_minute: int = 60
-    monthly_quota: int = 1000000
-    simulation_mode: bool = True  # New parameter to switch between simulation and real environment
+    openweathermap_url: str
+    max_calls_per_minute: int
+    monthly_quota: int
+    optimal_state: int
+    reward_scale: float
+    penalty_scale: float
+    log_level: str
+    use_simulated_env: bool
+    simulation_noise: float
 
-    @field_validator('alpha', 'gamma', 'initial_epsilon', 'epsilon_decay', 'min_epsilon')
+    @field_validator('alpha', 'gamma', 'initial_epsilon', 'epsilon_decay', 'min_epsilon', 'simulation_noise')
     def check_rate(cls, v):
         if not 0 <= v <= 1:
             raise ValueError('Rates must be between 0 and 1')
@@ -49,6 +56,12 @@ class Config(BaseModel):
     def check_url(cls, v):
         if not v.startswith("http"):
             raise ValueError("Invalid URL format")
+        return v
+
+    @field_validator('log_level')
+    def check_log_level(cls, v):
+        if v not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+            raise ValueError("Invalid log level")
         return v
 
 def load_config(config_path: str) -> Config:
@@ -87,7 +100,7 @@ class SimulatedEnvironment:
         return self.state
 
     def perform_action(self, action: int) -> Tuple[int, float]:
-        current_state = self.state
+        current_state = self.get_state()
         
         if action == 0:  # No change
             new_state = current_state
@@ -101,9 +114,16 @@ class SimulatedEnvironment:
             new_state = max(current_state - 2, 0)
         
         optimal_state = config.num_states // 2
-        reward = max(0, 20 - abs(new_state - optimal_state))
+        distance_to_optimal = abs(new_state - optimal_state)
+        previous_distance = abs(current_state - optimal_state)
         
-        self.state = new_state
+        if distance_to_optimal < previous_distance:
+            reward = 10 - distance_to_optimal  # Reward for moving closer to optimal
+        elif distance_to_optimal > previous_distance:
+            reward = -distance_to_optimal  # Penalty for moving away from optimal
+        else:
+            reward = 0  # No change in distance
+        
         return new_state, reward
 
 class RealEnvironment:
@@ -200,26 +220,25 @@ def update_q_table(q_table: np.ndarray, state: int, action: int, reward: float, 
     )
 
 def train_robot(robot_idx: int, episodes: int, q_table: np.ndarray) -> np.ndarray:
-    env = SimulatedEnvironment() if config.simulation_mode else RealEnvironment()
+    env = SimulatedEnvironment() if config.use_simulated_env else RealEnvironment()
     epsilon = config.initial_epsilon
+    epsilon_decay = config.epsilon_decay
+    min_epsilon = config.min_epsilon
     for episode in range(episodes):
-        epsilon = max(config.epsilon_decay * epsilon, config.min_epsilon)
+        epsilon = max(epsilon * epsilon_decay, min_epsilon)
         state = env.get_state()
         total_reward = 0
         steps = 0
         
-        while steps < 24:  # Simulate 24 hours
+        while steps < config.max_steps_per_episode:
             action = choose_action(q_table, state, epsilon)
             next_state, reward = env.perform_action(action)
             update_q_table(q_table, state, action, reward, next_state)
-            
-            logging.info(f"Robot {robot_idx}, Episode {episode}, Step {steps}: State = {state}, Action = {action}, Next State = {next_state}, Reward = {reward}")
-            
             state = next_state
             total_reward += reward
             steps += 1
         
-        if episode % 10 == 0:
+        if episode % config.log_interval == 0:
             logging.info(f"Robot {robot_idx}, Episode {episode}: Total reward = {total_reward}, Epsilon = {epsilon:.4f}")
     
     return q_table
