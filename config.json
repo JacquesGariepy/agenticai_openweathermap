@@ -3,14 +3,18 @@
     "num_robots": 5,
     "alpha": 0.1,
     "gamma": 0.9,
-    "epsilon": 0.1,
-    "num_states": 16,
-    "num_actions": 4,
-    "episodes": 100,
-    "save_interval": 10,
+    "initial_epsilon": 1.0,
+    "epsilon_decay": 0.995,
+    "min_epsilon": 0.1,
+    "num_states": 625,
+    "num_actions": 5,
+    "episodes": 1000,
+    "save_interval": 100,
     "load_path": null,
-    "latitude": 51.5074,
-    "longitude": -0.1278,
-    "openweathermap_url": "http://api.openweathermap.org/data/2.5/weather"
-  }
-  
+    "latitude": 48.8566,
+    "longitude": 2.3522,
+    "openweathermap_url": "http://api.openweathermap.org/data/2.5/weather",
+    "max_calls_per_minute": 60,
+    "monthly_quota": 1000000,
+    "simulation_mode": true
+}

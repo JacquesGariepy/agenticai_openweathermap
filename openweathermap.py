@@ -10,17 +10,23 @@ import retry
 import time
 import requests
 from dotenv import load_dotenv
+from threading import Lock
+import random
+
+# Load environment variables from .env file
 load_dotenv()
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Configuration model with validation
 class Config(BaseModel):
     model: str
     num_robots: int
     alpha: float
     gamma: float
-    epsilon: float
+    initial_epsilon: float
+    epsilon_decay: float
+    min_epsilon: float
     num_states: int
     num_actions: int
     episodes: int
@@ -29,8 +35,11 @@ class Config(BaseModel):
     latitude: float
     longitude: float
     openweathermap_url: str = "http://api.openweathermap.org/data/2.5/weather"
+    max_calls_per_minute: int = 60
+    monthly_quota: int = 1000000
+    simulation_mode: bool = True  # New parameter to switch between simulation and real environment
 
-    @field_validator('alpha', 'gamma', 'epsilon')
+    @field_validator('alpha', 'gamma', 'initial_epsilon', 'epsilon_decay', 'min_epsilon')
     def check_rate(cls, v):
         if not 0 <= v <= 1:
             raise ValueError('Rates must be between 0 and 1')
@@ -42,19 +51,16 @@ class Config(BaseModel):
             raise ValueError("Invalid URL format")
         return v
 
-# Load configuration with validation
 def load_config(config_path: str) -> Config:
     with open(config_path, 'r') as f:
         return Config(**json.load(f))
 
 config = load_config('config.json')
 
-# Fetch the API key from the environment variables
 openweathermap_api_key = os.getenv("OPENWEATHERMAP_API_KEY")
 if not openweathermap_api_key:
     raise ValueError("OPENWEATHERMAP_API_KEY is not set in environment variables.")
 
-# Configure the model LLM and AutoGen agents
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     raise ValueError("OPENAI_API_KEY is not set in environment variables.")
@@ -63,7 +69,6 @@ llm_config = {"model": config.model, "api_key": api_key}
 
 robots = [AssistantAgent(f"robot_{i}", llm_config=llm_config) for i in range(config.num_robots)]
 
-# Initialize or load Q-tables
 def init_or_load_q_tables(num_robots: int, num_states: int, num_actions: int, load_path: Optional[str] = None) -> List[np.ndarray]:
     if load_path and os.path.exists(load_path):
         with open(load_path, 'rb') as f:
@@ -72,157 +77,185 @@ def init_or_load_q_tables(num_robots: int, num_states: int, num_actions: int, lo
 
 q_tables = init_or_load_q_tables(config.num_robots, config.num_states, config.num_actions, config.load_path)
 
-class Environment:
+class SimulatedEnvironment:
+    def __init__(self):
+        self.state = random.randint(0, config.num_states - 1)
+
+    def get_state(self) -> int:
+        # Simulate small changes in the environment
+        self.state = max(0, min(config.num_states - 1, self.state + random.randint(-1, 1)))
+        return self.state
+
+    def perform_action(self, action: int) -> Tuple[int, float]:
+        current_state = self.state
+        
+        if action == 0:  # No change
+            new_state = current_state
+        elif action == 1:  # Slight increase
+            new_state = min(current_state + 1, config.num_states - 1)
+        elif action == 2:  # Moderate increase
+            new_state = min(current_state + 2, config.num_states - 1)
+        elif action == 3:  # Slight decrease
+            new_state = max(current_state - 1, 0)
+        elif action == 4:  # Moderate decrease
+            new_state = max(current_state - 2, 0)
+        
+        optimal_state = config.num_states // 2
+        reward = max(0, 20 - abs(new_state - optimal_state))
+        
+        self.state = new_state
+        return new_state, reward
+
+class RealEnvironment:
+    _lock = Lock()
+    _calls_made = 0
+    _last_reset = time.time()
+
     def __init__(self):
         self.api_key = openweathermap_api_key
         self.lat = config.latitude
         self.lon = config.longitude
         self.base_url = config.openweathermap_url
-        self.setup_connection()
 
-    def setup_connection(self):
-        # Construct the full URL with parameters
-        params = {
-            'lat': self.lat,
-            'lon': self.lon,
-            'appid': self.api_key,
-            'units': 'metric'
-        }
-        full_url = f"{self.base_url}?lat={self.lat}&lon={self.lon}&appid={self.api_key}&units=metric"
-        logging.info(f"Requesting weather data from: {full_url}")
-        print(f"Requesting weather data from: {full_url}")
-        
-        response = requests.get(self.base_url, params=params)
-        
-        print(f"Response status code: {response.status_code}")
-        print(f"Response content: {response.content}")
-        
-        if response.status_code == 200:
-            logging.info("Connected to OpenWeatherMap API successfully")
-        elif response.status_code == 401:
-            raise ConnectionError("Connection failed: Invalid API key.")
-        else:
-            raise ConnectionError(f"Connection error to OpenWeatherMap API: {response.status_code}")
+    @classmethod
+    def throttle(cls):
+        with cls._lock:
+            current_time = time.time()
+            if current_time - cls._last_reset >= 60:
+                cls._calls_made = 0
+                cls._last_reset = current_time
+            
+            if cls._calls_made >= config.max_calls_per_minute:
+                sleep_time = 60 - (current_time - cls._last_reset)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                cls._calls_made = 0
+                cls._last_reset = time.time()
+            
+            cls._calls_made += 1
+
+            if cls._calls_made > config.monthly_quota:
+                raise ValueError("Monthly API call quota exceeded.")
 
     def get_state(self) -> int:
-        # Fetch current weather data
+        self.throttle()
         params = {
             'lat': self.lat,
             'lon': self.lon,
             'appid': self.api_key,
             'units': 'metric'
         }
-        response = requests.get(self.base_url, params=params)
-        print(f"Fetching weather data with params: {params}")
-        print(f"Response content: {response.content}")
-        
-        data = response.json()
+        try:
+            response = requests.get(self.base_url, params=params)
+            response.raise_for_status()
+            data = response.json()
 
-        # Handle potential errors
-        if response.status_code != 200:
-            logging.error(f"Error fetching data: {data}")
+            temperature = data['main']['temp']
+            humidity = data['main']['humidity']
+            wind_speed = data['wind']['speed']
+            pressure = data['main']['pressure']
+
+            temp_state = int((temperature + 20) / 4)
+            humidity_state = int(humidity / 20)
+            wind_state = int(wind_speed / 2)
+            pressure_state = int((pressure - 950) / 10)
+
+            combined_state = temp_state * 125 + humidity_state * 25 + wind_state * 5 + pressure_state
+            return min(max(combined_state, 0), config.num_states - 1)
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching weather data: {str(e)}")
+            logging.error(f"Response content: {response.content if 'response' in locals() else 'N/A'}")
             raise ValueError("Failed to fetch weather data")
 
-        # Convert temperature to a discrete state
-        temperature = data['main']['temp']
-        state = int((temperature + 20) / 4)  # Convert temperature range -20°C to 40°C into 0-15 states
-        return min(max(state, 0), config.num_states - 1)
-
     def perform_action(self, action: int) -> Tuple[int, float]:
-        # Simulate an action (e.g., adjust a climate control system)
         current_state = self.get_state()
         
-        # Simulate new state after action
-        new_state = (current_state + action - 2) % config.num_states
+        if action == 0:  # No change
+            new_state = current_state
+        elif action == 1:  # Slight increase
+            new_state = min(current_state + 1, config.num_states - 1)
+        elif action == 2:  # Moderate increase
+            new_state = min(current_state + 2, config.num_states - 1)
+        elif action == 3:  # Slight decrease
+            new_state = max(current_state - 1, 0)
+        elif action == 4:  # Moderate decrease
+            new_state = max(current_state - 2, 0)
         
-        # Calculate reward
-        reward = -abs(new_state - 7)  # Max reward when temperature is around 15°C (state 7)
+        optimal_state = config.num_states // 2
+        reward = max(0, 20 - abs(new_state - optimal_state))
         
         return new_state, reward
 
-# Epsilon-greedy policy to choose an action
 def choose_action(q_table: np.ndarray, state: int, epsilon: float) -> int:
     if np.random.rand() < epsilon:
         return np.random.randint(0, config.num_actions)
     else:
         return np.argmax(q_table[state])
 
-# Update the Q-table
 def update_q_table(q_table: np.ndarray, state: int, action: int, reward: float, next_state: int) -> None:
     best_next_action = np.argmax(q_table[next_state])
     q_table[state, action] = q_table[state, action] + config.alpha * (
         reward + config.gamma * q_table[next_state, best_next_action] - q_table[state, action]
     )
 
-# Training function for a single robot
 def train_robot(robot_idx: int, episodes: int, q_table: np.ndarray) -> np.ndarray:
-    env = Environment()
-    local_epsilon = config.epsilon
+    env = SimulatedEnvironment() if config.simulation_mode else RealEnvironment()
+    epsilon = config.initial_epsilon
     for episode in range(episodes):
-        local_epsilon *= 0.99  # Decay epsilon
+        epsilon = max(config.epsilon_decay * epsilon, config.min_epsilon)
         state = env.get_state()
         total_reward = 0
         steps = 0
         
         while steps < 24:  # Simulate 24 hours
-            action = choose_action(q_table, state, local_epsilon)
+            action = choose_action(q_table, state, epsilon)
             next_state, reward = env.perform_action(action)
             update_q_table(q_table, state, action, reward, next_state)
+            
+            logging.info(f"Robot {robot_idx}, Episode {episode}, Step {steps}: State = {state}, Action = {action}, Next State = {next_state}, Reward = {reward}")
+            
             state = next_state
             total_reward += reward
             steps += 1
         
         if episode % 10 == 0:
-            logging.info(f"Robot {robot_idx}, Episode {episode}: Total reward = {total_reward}")
+            logging.info(f"Robot {robot_idx}, Episode {episode}: Total reward = {total_reward}, Epsilon = {epsilon:.4f}")
     
     return q_table
 
-# Main training function with parallelization
 def train() -> List[np.ndarray]:
     with ProcessPoolExecutor() as executor:
         results = list(executor.map(train_robot, range(config.num_robots), [config.episodes]*config.num_robots, q_tables))
     return results
 
-# Explain an action
 def explain_action(robot_idx: int, state: int) -> str:
     q_values = q_tables[robot_idx][state]
     action = np.argmax(q_values)
-    explanation = f"In state {state}, robot {robot_idx} chose action {action}.\n"
+    actions = ["No change", "Slight increase", "Moderate increase", "Slight decrease", "Moderate decrease"]
+    explanation = f"In state {state}, robot {robot_idx} chose action {action} ({actions[action]}).\n"
     explanation += "Q-values for each action:\n"
     for a, q in enumerate(q_values):
-        explanation += f"Action {a}: {q:.2f}\n"
+        explanation += f"{actions[a]}: {q:.2f}\n"
     return explanation
 
-# Save Q-tables
 def save_q_tables(q_tables: List[np.ndarray], filename: str) -> None:
-    np.save(filename, q_tables)
-    logging.info(f"Q-tables saved in {filename}")
+    timestamped_filename = f'{filename}_{int(time.time())}.npy'
+    np.save(timestamped_filename, q_tables)
+    logging.info(f"Q-tables saved in {timestamped_filename}")
 
-# Retry decorator with exponential backoff
-# Retry decorator with exponential backoff for generating explanations
 @retry.retry(exceptions=Exception, tries=5, delay=1, backoff=2)
 def generate_explanation_with_retry(robot: AssistantAgent, explanation: str) -> str:
-    """
-    Generate an explanation with retry mechanism in case of failure.
-
-    Parameters:
-    - robot: The AssistantAgent responsible for generating the explanation.
-    - explanation: A string representing the current state and Q-table information.
-
-    Returns:
-    - The generated explanation from the LLM.
-    """
     logging.info(f"Attempting to generate explanation for robot: {robot.name}")
+    logging.info(f"Explanation being sent: {explanation}")
     try:
-        # Generate the explanation
         response = robot.generate_init_message(explanation)
         logging.info(f"Explanation generated successfully for robot: {robot.name}")
         return response
     except Exception as e:
         logging.error(f"Error generating explanation for robot {robot.name}: {str(e)}")
-        raise  # This will trigger the retry logic
+        raise
 
-# Main function with error handling and saving
 def main():
     global q_tables
     try:
@@ -232,9 +265,8 @@ def main():
         training_time = end_time - start_time
         logging.info(f"Total training time: {training_time:.2f} seconds")
 
-        save_q_tables(q_tables, 'q_tables_final.npy')
+        save_q_tables(q_tables, 'q_tables_final')
         
-        # Generate explanations
         for robot_idx in range(config.num_robots):
             for state in range(config.num_states):
                 explanation = explain_action(robot_idx, state)
