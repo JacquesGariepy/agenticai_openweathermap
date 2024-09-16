@@ -137,7 +137,7 @@ To access weather data using the OpenWeatherMap API, you need to **register for 
     "log_level": "INFO",
     "use_simulated_env": true,
     "simulation_noise": 0.1
-}
+   }
    ```
 6. **Creating an `.env` File for API Keys**:
 
