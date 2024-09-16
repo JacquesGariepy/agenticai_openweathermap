@@ -1,0 +1,16 @@
+{
+    "model": "o1-mini",
+    "num_robots": 3,
+    "alpha": 0.1,
+    "gamma": 0.9,
+    "epsilon": 0.2,
+    "num_states": 10,
+    "num_actions": 5,
+    "episodes": 1000,
+    "save_interval": 100,
+    "load_path": "",
+    "openweathermap_api_key": "16ab2ce82d9188d244b4f2c62bbc8358",
+    "openweathermap_url": "https://api.openweathermap.org/data/2.5/onecall",
+    "latitude": 46.8139,
+    "longitude": -71.2082
+}
