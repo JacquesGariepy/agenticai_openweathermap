@@ -1,17 +1,27 @@
 import os
 import numpy as np
+from autogen import AssistantAgent  # Import AutoGen for agent handling
+import logging
 import json
+from typing import List, Tuple, Optional
+from flask import Flask, jsonify, request, render_template
+import matplotlib.pyplot as plt
+from concurrent.futures import ProcessPoolExecutor
+from dotenv import load_dotenv
+from threading import Lock
 import random
 import time
-import requests
-import logging
-from typing import List, Tuple, Optional
-from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configuration loading and environment variables
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Flask app initialization
+app = Flask(__name__)
+
+# Configuration class (similar to the original code)
 class Config:
     def __init__(self, config_path: str):
         with open(config_path, 'r') as f:
@@ -24,126 +34,123 @@ class Config:
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY is not set in environment variables.")
 
-# Initialize the configuration
+# Initialize configuration
 config = Config('config.json')
 
-# Load Q-table
+# Initialize Q-tables (same as before)
 q_tables = np.load('q_tables_final.npy', allow_pickle=True)
 
-# Simulated or real environment class
-class RoomEnvironment:
+# Initialize agents with AutoGen
+llm_config = {"model": config.model, "api_key": config.api_key}
+agents = [AssistantAgent(f"agent_{i}", llm_config=llm_config) for i in range(config.num_robots)]
+
+class SimulatedEnvironment:
     def __init__(self):
-        self.temperature = 10.0  # Initial room temperature (Celsius)
-        self.outside_temp = 20.0  # Initial outside temperature (Celsius)
-        self.humidity = 50.0  # Initial humidity (%)
-        self.optimal_temp = 22.0  # Default target room temperature (Celsius)
-        self.num_states = q_tables[0].shape[0]  # Get number of states
-        self.energy_cost = 0  # Track energy usage
+        self.state = random.randint(0, config.num_states - 1)
+        self.reward_history = []  # Track rewards for plotting
+        self.last_action = None
 
     def get_state(self) -> int:
-        # Compute the current state based on temperature and humidity
-        temp_component = int((self.temperature - 10) / 20 * (self.num_states // 2))
-        humidity_component = int(self.humidity / 100 * (self.num_states // 2))
-        return min(temp_component + humidity_component, self.num_states - 1)
-
-    def get_outside_weather(self):
-        # Fetch real-time outside temperature and humidity using the OpenWeatherMap API
-        url = f"http://api.openweathermap.org/data/2.5/weather?lat={config.latitude}&lon={config.longitude}&appid={config.openweathermap_api_key}&units=metric"
-        response = requests.get(url)
-        weather_data = response.json()
-        self.outside_temp = weather_data['main']['temp']
-        self.humidity = weather_data['main']['humidity']
-
-    def adjust_ideal_temperature(self):
-        # Dynamically adjust the optimal temperature based on outside conditions
-        if self.outside_temp > 25:  # Hot weather
-            self.optimal_temp = 24.0
-        elif self.outside_temp < 10:  # Cold weather
-            self.optimal_temp = 20.0
-        else:
-            self.optimal_temp = 22.0
+        # Simulate small changes in the environment
+        self.state = max(0, min(config.num_states - 1, self.state + random.randint(-1, 1)))
+        return self.state
 
     def perform_action(self, action: int) -> Tuple[int, float]:
-        old_temp = self.temperature
-
-        # Apply action to modify temperature
+        current_state = self.get_state()
+        
+        # Simulate state transition based on action
         if action == 0:  # No change
-            pass
-        elif action == 1:  # Very slight increase
-            self.temperature += 0.2
-            self.energy_cost += 0.5  # Small energy consumption
-        elif action == 2:  # Slight increase
-            self.temperature += 0.5
-            self.energy_cost += 1.0  # Moderate energy consumption
-        elif action == 3:  # Moderate increase
-            self.temperature += 1.0
-            self.energy_cost += 2.0  # High energy consumption
-        elif action == 4:  # Very slight decrease
-            self.temperature -= 0.2
-            self.energy_cost += 0.5  # Small energy consumption
-        elif action == 5:  # Slight decrease
-            self.temperature -= 0.5
-            self.energy_cost += 1.0  # Moderate energy consumption
-        elif action == 6:  # Moderate decrease
-            self.temperature -= 1.0
-            self.energy_cost += 2.0  # High energy consumption
+            new_state = current_state
+        elif action == 1:  # Slight increase
+            new_state = min(current_state + 1, config.num_states - 1)
+        elif action == 2:  # Moderate increase
+            new_state = min(current_state + 2, config.num_states - 1)
+        elif action == 3:  # Slight decrease
+            new_state = max(current_state - 1, 0)
+        elif action == 4:  # Moderate decrease
+            new_state = max(current_state - 2, 0)
 
-        # Natural temperature adjustment based on outside temperature
-        self.temperature += 0.1 * (self.outside_temp - self.temperature)
-
-        # Update humidity (simplified model)
-        self.humidity += random.uniform(-1, 1)
-        self.humidity = max(30, min(70, self.humidity))
-
-        # Keep temperature within reasonable bounds
-        self.temperature = max(12, min(32, self.temperature))
-
-        new_state = self.get_state()
-
-        # Reward calculation based on proximity to ideal temperature and humidity
-        temp_diff = abs(self.temperature - self.optimal_temp)
-        humidity_diff = abs(self.humidity - 50) / 2  # Optimal humidity is 50%
-        energy_penalty = self.energy_cost / 10  # Penalize energy consumption
-        reward = 20 - temp_diff - humidity_diff - energy_penalty
-
+        # Reward based on proximity to optimal state
+        optimal_state = config.num_states // 2
+        reward = max(0, 20 - abs(new_state - optimal_state))
+        self.reward_history.append(reward)
+        self.last_action = action
         return new_state, reward
 
-# Select action using epsilon-greedy policy
+# Initialize a simulated environment
+env = SimulatedEnvironment()
+
+# Choose action using epsilon-greedy policy
 def choose_action(q_table: np.ndarray, state: int, epsilon: float) -> int:
-    if random.random() < epsilon:
-        return random.randint(0, q_table.shape[1] - 1)
+    if np.random.rand() < epsilon:
+        return np.random.randint(0, config.num_actions)
     else:
         return np.argmax(q_table[state])
 
-# Log results and actions taken at each interval
-def log_results(hour: int, temperature: float, outside_temp: float, humidity: float, action: str, reward: float, energy_cost: float):
-    logging.info(f"Hour {hour}: Room Temp: {temperature:.2f}°C, Outside Temp: {outside_temp:.2f}°C, Humidity: {humidity:.2f}%, Energy Cost: {energy_cost:.2f} units")
-    logging.info(f"Action taken: {action}, Reward: {reward:.2f}")
+# Update Q-table based on actions
+def update_q_table(q_table: np.ndarray, state: int, action: int, reward: float, next_state: int) -> None:
+    best_next_action = np.argmax(q_table[next_state])
+    q_table[state, action] = q_table[state, action] + config.alpha * (
+        reward + config.gamma * q_table[next_state, best_next_action] - q_table[state, action]
+    )
 
-# Main live control loop with periodic check
-def run_live_control(check_interval: int = 60):
-    room = RoomEnvironment()
-    epsilon = 0.1  # Small exploration rate for live use case
-    q_table = q_tables[0]  # Select Q-table for the robot
+# Save performance graph
+def save_performance_graph():
+    plt.plot(env.reward_history)
+    plt.xlabel('Step')
+    plt.ylabel('Reward')
+    plt.title('Performance over time')
+    plt.savefig('static/performance.png')
+    plt.close()
 
-    for hour in range(24):  # Simulating for 24 hours
-        room.get_outside_weather()  # Fetch real-time weather
-        room.adjust_ideal_temperature()  # Adjust ideal temp based on weather
-        state = room.get_state()
-        action = choose_action(q_table, state, epsilon)
-        new_state, reward = room.perform_action(action)
+# Use AutoGen to generate explanations and coordinate agents
+def generate_explanation(agent_idx: int, state: int):
+    agent = agents[agent_idx]
+    q_values = q_tables[agent_idx][state]
+    action = np.argmax(q_values)
+    actions = ["No change", "Slight increase", "Moderate increase", "Slight decrease", "Moderate decrease"]
+    
+    # Use AutoGen to explain the decision
+    explanation_prompt = (
+        f"The agent chose {actions[action]} in state {state}. "
+        f"Explain the rationale behind this decision and suggest improvements."
+    )
+    response = agent.generate_init_message(explanation_prompt)
+    logging.info(f"Agent {agent_idx} explanation: {response}")
+    return response
 
-        actions = ["No change", "Very slight increase", "Slight increase", "Moderate increase", 
-                   "Very slight decrease", "Slight decrease", "Moderate decrease"]
+# Dashboard route
+@app.route('/')
+def index():
+    return render_template('index.html', epsilon=config.initial_epsilon, num_episodes=config.episodes)
 
-        # Log action and state every hour
-        log_results(hour, room.temperature, room.outside_temp, room.humidity, actions[action], reward, room.energy_cost)
+# Route to update parameters dynamically
+@app.route('/update_params', methods=['POST'])
+def update_params():
+    config.initial_epsilon = float(request.form['epsilon'])
+    config.episodes = int(request.form['episodes'])
+    return jsonify({"status": "Parameters updated successfully"})
 
-        # Wait for the next check based on the interval set (in minutes)
-        time.sleep(check_interval * 60)  # Sleep for x minutes before the next check
+# Route to start training and use AutoGen for explanation
+@app.route('/train', methods=['POST'])
+def start_training():
+    global q_tables
+    epsilon = config.initial_epsilon
+    state = env.get_state()
+    
+    for _ in range(config.episodes):
+        action = choose_action(q_tables[0], state, epsilon)
+        next_state, reward = env.perform_action(action)
+        update_q_table(q_tables[0], state, action, reward, next_state)
+        state = next_state
+    
+    save_performance_graph()
+    
+    # Generate explanations for the last actions
+    explanation = generate_explanation(0, state)
+    
+    return jsonify({"status": "Training completed", "explanation": explanation})
 
-    logging.info("Live control completed.")
-
+# Run Flask server
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    run_live_control(check_interval=5)  # Check every 5 minutes
+    app.run(debug=True)
