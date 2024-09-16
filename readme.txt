@@ -1,12 +1,12 @@
-# Weather-Based Q-Learning Simulation Application
+#Weather-Based Q-Learning Simulation Application
 
-## Overview
+##Overview
 
 This project simulates decision-making robots that interact with real-time weather data retrieved from the OpenWeatherMap API. The robots use **Q-learning** to make decisions based on current weather conditions (e.g., temperature, humidity) and continuously improve their actions over time.
 
 The application integrates the **Current Weather API** from OpenWeatherMap and provides a dynamic environment where robots learn through reinforcement learning techniques.
 
-## Table of Contents
+##Table of Contents
 - [Purpose](#purpose)
 - [How It Works](#how-it-works)
 - [Expected Behavior](#expected-behavior)
@@ -16,11 +16,11 @@ The application integrates the **Current Weather API** from OpenWeatherMap and p
 - [Configuration File (`config.json`)](#configuration-file-configjson)
 - [Known Issues](#known-issues)
 
-## Purpose
+##Purpose
 
 The purpose of this project is to simulate the behavior of robots that learn how to make optimal decisions in response to changes in weather conditions. Using **Q-learning**, robots adjust their actions and receive rewards, which helps them improve over multiple episodes.
 
-### Key Features:
+###Key Features:
 - **Real-time weather data**: Retrieves live weather data (temperature, humidity, etc.) using the OpenWeatherMap API.
 - **Q-learning**: Reinforcement learning algorithm that improves the decision-making process of robots over time.
 - **Scalability**: The application allows you to adjust the number of robots and learning episodes.
@@ -41,19 +41,19 @@ The purpose of this project is to simulate the behavior of robots that learn how
 
 ## Expected Behavior
 
-### On Application Start:
+###On Application Start:
 - **Weather Data Fetch**: The app will fetch real-time weather data from the OpenWeatherMap API using your API key and location (latitude and longitude).
 - **Q-Learning Simulation**: Multiple robots will start interacting with the environment, learning from the weather data.
 - **Logging**: You will see logs displaying the progress of the simulation, including total rewards for each robot and updates every few episodes.
 - **Q-Tables**: At the end of the simulation, Q-tables will be saved, representing the learning process of each robot.
 
-### Error Scenarios:
+###Error Scenarios:
 - If there is an invalid API key or network issue, a "ConnectionError" will be logged.
 - If the `config.json` file is incorrectly formatted, the application will raise a `json.decoder.JSONDecodeError`.
 
-## How to Set Up and Run the Application
+##How to Set Up and Run the Application
 
-### Using Conda:
+###Using Conda:
 
 1. **Clone the repository**:
    ```bash
@@ -106,7 +106,7 @@ The purpose of this project is to simulate the behavior of robots that learn how
    python openweathermap.py
    ```
 
-### Using Pip (Alternative):
+###Using Pip (Alternative):
 If you prefer not to use `conda`, you can install dependencies via `pip`:
 ```bash
 pip install -r requirements.txt
@@ -125,7 +125,7 @@ Example API Request:
 https://api.openweathermap.org/data/2.5/weather?lat=46.8139&lon=-71.2082&appid=YOUR_API_KEY
 ```
 
-## Dependencies
+##Dependencies
 
 Here are the dependencies required for the project:
 - **numpy**: Numerical library for managing arrays and performing Q-learning calculations.
@@ -134,7 +134,7 @@ Here are the dependencies required for the project:
 - **retry**: To retry failed API calls automatically.
 - **autogen**: Required for generating and managing robots in the simulation.
 
-## Configuration File (`config.json`)
+##Configuration File (`config.json`)
 
 The configuration file allows you to customize the behavior of the simulation. Here's a breakdown of the fields in `config.json`:
 - `model`: The robot model (e.g., "o1-mini").
@@ -151,7 +151,7 @@ The configuration file allows you to customize the behavior of the simulation. H
 - `openweathermap_url`: The OpenWeatherMap API endpoint.
 - `latitude`, `longitude`: Geographic coordinates of the city.
 
-## Known Issues
+##Known Issues
 
 - **Invalid API Key**: Make sure your OpenWeatherMap API key is correct, or you’ll encounter a connection error.
 - **JSON Parsing Errors**: Ensure the `config.json` file is correctly formatted; otherwise, a `json.decoder.JSONDecodeError` will be raised.
