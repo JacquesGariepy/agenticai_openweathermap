@@ -71,8 +71,7 @@ The purpose of this project is to simulate the behavior of robots that learn how
 3. **Install dependencies**:
    Install the necessary dependencies using `conda` and `pip`:
    ```bash
-   conda install numpy requests
-   conda install pydantic retry autogen
+   conda install pydantic retry autogen numpy requests
    ```
 
 4. **Set up OpenWeatherMap API key**:
