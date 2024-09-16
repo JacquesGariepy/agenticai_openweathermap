@@ -112,21 +112,32 @@ To access weather data using the OpenWeatherMap API, you need to **register for 
    Edit the `config.json` file to set the latitude, longitude, and your OpenWeatherMap API key:
    ```json
    {
-       "model": "o1-mini",
-       "num_robots": 3,
-       "alpha": 0.1,
-       "gamma": 0.9,
-       "epsilon": 0.2,
-       "num_states": 10,
-       "num_actions": 5,
-       "episodes": 1000,
-       "save_interval": 100,
-       "load_path": "",
-       "openweathermap_api_key": "YOUR_API_KEY",
-       "openweathermap_url": "https://api.openweathermap.org/data/2.5/weather",
-       "latitude": 46.8139,
-       "longitude": -71.2082
-   }
+    "model": "o1-mini",
+    "num_robots": 5,
+    "alpha": 0.1,
+    "gamma": 0.9,
+    "initial_epsilon": 1.0,
+    "epsilon_decay": 0.9995,
+    "min_epsilon": 0.01,
+    "num_states": 625,
+    "num_actions": 5,
+    "episodes": 10000,
+    "max_steps_per_episode": 24,
+    "save_interval": 1000,
+    "log_interval": 100,
+    "load_path": null,
+    "latitude": 48.8566,
+    "longitude": 2.3522,
+    "openweathermap_url": "http://api.openweathermap.org/data/2.5/weather",
+    "max_calls_per_minute": 60,
+    "monthly_quota": 1000000,
+    "optimal_state": 312,
+    "reward_scale": 10,
+    "penalty_scale": 1,
+    "log_level": "INFO",
+    "use_simulated_env": true,
+    "simulation_noise": 0.1
+}
    ```
 6. **Creating an `.env` File for API Keys**:
 
