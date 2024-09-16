@@ -65,7 +65,7 @@ To access weather data using the OpenWeatherMap API, you need to **register for 
 
 ### Free Tier and Usage Limits
 - **Free License**: OpenWeatherMap provides a **free plan** that allows up to **1,000 API calls per day**. This is ideal for small projects or individual developers.
-- For larger applications, you can explore paid plans with higher call limits and additional features by visiting the [OpenWeatherMap Pricing page](https://openweathermap.org/price)【66†source】【68†source】.
+- For larger applications, you can explore paid plans with higher call limits and additional features by visiting the [OpenWeatherMap Pricing page](https://openweathermap.org/price).
 
 ### How to Register for an OpenWeatherMap API Key
 
