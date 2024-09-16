@@ -47,9 +47,6 @@ The purpose of this project is to simulate the behavior of robots that learn how
 - **Logging**: You will see logs displaying the progress of the simulation, including total rewards for each robot and updates every few episodes.
 - **Q-Tables**: At the end of the simulation, Q-tables will be saved, representing the learning process of each robot.
 
-### Error Scenarios:
-- If there is an invalid API key or network issue, a "ConnectionError" will be logged.
-- If the `config.json` file is incorrectly formatted, the application will raise a `json.decoder.JSONDecodeError`.
 
 ### How to Register for an OpenWeatherMap API Key
 
@@ -81,7 +78,7 @@ To access weather data using the OpenWeatherMap API, you need to **register for 
 
 ### Free Tier and Usage Limits
 - **Free License**: OpenWeatherMap provides a **free plan** that allows up to **1,000 API calls per day**. This is ideal for small projects or individual developers.
-- For larger applications, you can explore paid plans with higher call limits and additional features by visiting the [OpenWeatherMap Pricing page](https://openweathermap.org/price)【66†source】【68†source】.
+- For larger applications, you can explore paid plans with higher call limits and additional features by visiting the [OpenWeatherMap Pricing page](https://openweathermap.org/price).
 
 
 ## How to Set Up and Run the Application
@@ -131,8 +128,34 @@ To access weather data using the OpenWeatherMap API, you need to **register for 
        "longitude": -71.2082
    }
    ```
+6. **Creating an `.env` File for API Keys**:
 
-6. **Run the application**:
+To securely manage your API keys (e.g., OpenAI and OpenWeatherMap keys), you can store them in an `.env` file and load them into your Python environment using the `python-dotenv` package. Here's how you can set it up:
+
+#### Steps to Create and Use the `.env` File
+
+6.1. **Install the `python-dotenv` package**:
+   First, you need to install the `python-dotenv` package, which allows you to load environment variables from a `.env` file into Python.
+   ```bash
+   pip install python-dotenv
+   ```
+
+6.2. **Create a `.env` file**:
+   In your project directory, create a file called `.env` and add your API keys like this:
+   ```bash
+   OPENAI_API_KEY=your_openai_api_key_here
+   OPENWEATHERMAP_API_KEY=your_openweathermap_api_key_here
+   ```
+
+6.3. **Add `.env` to `.gitignore`**:
+   To ensure your API keys are not accidentally committed to version control, add the `.env` file to your `.gitignore`:
+   ```bash
+   echo ".env" >> .gitignore
+   ```
+
+This approach allows you to securely manage and load your API keys without hardcoding them into your code.
+
+7. **Run the application**:
    After setting up the configuration file, run the application:
    ```bash
    python openweathermap.py

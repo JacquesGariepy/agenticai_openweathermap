@@ -3,13 +3,14 @@ import numpy as np
 from autogen import AssistantAgent
 import logging
 import json
-from typing import List, Tuple
-from pydantic import BaseModel, validator
+from typing import List, Tuple, Optional
+from pydantic import BaseModel, field_validator
 from concurrent.futures import ProcessPoolExecutor
 import retry
 import time
 import requests
-
+from dotenv import load_dotenv
+load_dotenv()
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -24,16 +25,21 @@ class Config(BaseModel):
     num_actions: int
     episodes: int
     save_interval: int
-    load_path: str = None
-    openweathermap_api_key: str
+    load_path: Optional[str] = None
     latitude: float
     longitude: float
-    openweathermap_url: str
+    openweathermap_url: str = "http://api.openweathermap.org/data/2.5/weather"
 
-    @validator('alpha', 'gamma', 'epsilon')
+    @field_validator('alpha', 'gamma', 'epsilon')
     def check_rate(cls, v):
         if not 0 <= v <= 1:
             raise ValueError('Rates must be between 0 and 1')
+        return v
+
+    @field_validator('openweathermap_url')
+    def check_url(cls, v):
+        if not v.startswith("http"):
+            raise ValueError("Invalid URL format")
         return v
 
 # Load configuration with validation
@@ -43,8 +49,13 @@ def load_config(config_path: str) -> Config:
 
 config = load_config('config.json')
 
+# Fetch the API key from the environment variables
+openweathermap_api_key = os.getenv("OPENWEATHERMAP_API_KEY")
+if not openweathermap_api_key:
+    raise ValueError("OPENWEATHERMAP_API_KEY is not set in environment variables.")
+
 # Configure the model LLM and AutoGen agents
-api_key = os.environ.get("OPENAI_API_KEY")
+api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     raise ValueError("OPENAI_API_KEY is not set in environment variables.")
 
@@ -53,7 +64,7 @@ llm_config = {"model": config.model, "api_key": api_key}
 robots = [AssistantAgent(f"robot_{i}", llm_config=llm_config) for i in range(config.num_robots)]
 
 # Initialize or load Q-tables
-def init_or_load_q_tables(num_robots: int, num_states: int, num_actions: int, load_path: str = None) -> List[np.ndarray]:
+def init_or_load_q_tables(num_robots: int, num_states: int, num_actions: int, load_path: Optional[str] = None) -> List[np.ndarray]:
     if load_path and os.path.exists(load_path):
         with open(load_path, 'rb') as f:
             return np.load(f, allow_pickle=True)
@@ -63,21 +74,29 @@ q_tables = init_or_load_q_tables(config.num_robots, config.num_states, config.nu
 
 class Environment:
     def __init__(self):
-        self.api_key = config.openweathermap_api_key
+        self.api_key = openweathermap_api_key
         self.lat = config.latitude
         self.lon = config.longitude
         self.base_url = config.openweathermap_url
         self.setup_connection()
 
     def setup_connection(self):
-        # Check connection to the API
+        # Construct the full URL with parameters
         params = {
             'lat': self.lat,
             'lon': self.lon,
             'appid': self.api_key,
             'units': 'metric'
         }
+        full_url = f"{self.base_url}?lat={self.lat}&lon={self.lon}&appid={self.api_key}&units=metric"
+        logging.info(f"Requesting weather data from: {full_url}")
+        print(f"Requesting weather data from: {full_url}")
+        
         response = requests.get(self.base_url, params=params)
+        
+        print(f"Response status code: {response.status_code}")
+        print(f"Response content: {response.content}")
+        
         if response.status_code == 200:
             logging.info("Connected to OpenWeatherMap API successfully")
         elif response.status_code == 401:
@@ -94,10 +113,18 @@ class Environment:
             'units': 'metric'
         }
         response = requests.get(self.base_url, params=params)
+        print(f"Fetching weather data with params: {params}")
+        print(f"Response content: {response.content}")
+        
         data = response.json()
 
+        # Handle potential errors
+        if response.status_code != 200:
+            logging.error(f"Error fetching data: {data}")
+            raise ValueError("Failed to fetch weather data")
+
         # Convert temperature to a discrete state
-        temperature = data['current']['temp']
+        temperature = data['main']['temp']
         state = int((temperature + 20) / 4)  # Convert temperature range -20°C to 40°C into 0-15 states
         return min(max(state, 0), config.num_states - 1)
 
@@ -172,9 +199,28 @@ def save_q_tables(q_tables: List[np.ndarray], filename: str) -> None:
     logging.info(f"Q-tables saved in {filename}")
 
 # Retry decorator with exponential backoff
+# Retry decorator with exponential backoff for generating explanations
 @retry.retry(exceptions=Exception, tries=5, delay=1, backoff=2)
 def generate_explanation_with_retry(robot: AssistantAgent, explanation: str) -> str:
-    return robot.generate_init_message(explanation)
+    """
+    Generate an explanation with retry mechanism in case of failure.
+
+    Parameters:
+    - robot: The AssistantAgent responsible for generating the explanation.
+    - explanation: A string representing the current state and Q-table information.
+
+    Returns:
+    - The generated explanation from the LLM.
+    """
+    logging.info(f"Attempting to generate explanation for robot: {robot.name}")
+    try:
+        # Generate the explanation
+        response = robot.generate_init_message(explanation)
+        logging.info(f"Explanation generated successfully for robot: {robot.name}")
+        return response
+    except Exception as e:
+        logging.error(f"Error generating explanation for robot {robot.name}: {str(e)}")
+        raise  # This will trigger the retry logic
 
 # Main function with error handling and saving
 def main():
