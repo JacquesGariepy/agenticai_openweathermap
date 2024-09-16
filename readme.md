@@ -158,7 +158,7 @@ This approach allows you to securely manage and load your API keys without hardc
 7. **Run the application**:
    After setting up the configuration file, run the application:
    ```bash
-   python openweathermap.py
+   python train.py
    ```
 
 ### Using Pip (Alternative):
