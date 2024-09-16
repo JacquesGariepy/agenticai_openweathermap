@@ -51,6 +51,23 @@ The purpose of this project is to simulate the behavior of robots that learn how
 - If there is an invalid API key or network issue, a "ConnectionError" will be logged.
 - If the `config.json` file is incorrectly formatted, the application will raise a `json.decoder.JSONDecodeError`.
 
+### How to Register for an OpenWeatherMap API Key
+
+To access weather data using the OpenWeatherMap API, you need to **register for an account** and obtain an API key. Here's how to do it:
+
+1. **Sign up**: Visit the [OpenWeatherMap Sign-Up page](https://home.openweathermap.org/users/sign_up) and fill in your details (email, username, and password).
+   
+2. **Confirm your email**: After signing up, you will receive a confirmation email. Please confirm your email to activate your account.
+
+3. **Obtain your API key**: Once your account is activated, log in and navigate to the [API keys section](https://home.openweathermap.org/api_keys) in your account. Your default API key will be displayed there. You can also create additional keys for different projects if necessary.
+
+4. **Wait for activation**: It may take some time for your API key to be fully activated and ready for use. Be patient, and ensure your email is confirmed to avoid delays.
+
+### Free Tier and Usage Limits
+- **Free License**: OpenWeatherMap provides a **free plan** that allows up to **1,000 API calls per day**. This is ideal for small projects or individual developers.
+- For larger applications, you can explore paid plans with higher call limits and additional features by visiting the [OpenWeatherMap Pricing page](https://openweathermap.org/price)【66†source】【68†source】.
+
+
 ## How to Set Up and Run the Application
 
 ### Using Conda:
