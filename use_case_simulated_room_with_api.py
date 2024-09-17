@@ -1,34 +1,35 @@
 import os
+from typing import Tuple
 import numpy as np
+import logging
 import json
-import random
 import time
 import requests
-import logging
-from typing import List, Tuple, Optional
+import random
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configuration loading and environment variables
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Load configuration from a JSON file
 class Config:
     def __init__(self, config_path: str):
         with open(config_path, 'r') as f:
             config = json.load(f)
-            self.__dict__.update(config)
-        self.openweathermap_api_key = os.getenv("OPENWEATHERMAP_API_KEY")
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        if not self.openweathermap_api_key:
-            raise ValueError("OPENWEATHERMAP_API_KEY is not set in environment variables.")
-        if not self.api_key:
-            raise ValueError("OPENAI_API_KEY is not set in environment variables.")
+        self.__dict__.update(config)
 
 # Initialize the configuration
 config = Config('config.json')
 
+openweathermap_api_key = os.getenv("OPENWEATHERMAP_API_KEY")
+if not openweathermap_api_key:
+    raise ValueError("OPENWEATHERMAP_API_KEY is not set in environment variables.")
+
 # Load Q-table
-q_tables = np.load('q_tables_final.npy', allow_pickle=True)
+q_tables = np.load('q_tables_final_1726516213.npy', allow_pickle=True)
 
 # Simulated or real environment class
 class RoomEnvironment:
@@ -48,7 +49,7 @@ class RoomEnvironment:
 
     def get_outside_weather(self):
         # Fetch real-time outside temperature and humidity using the OpenWeatherMap API
-        url = f"http://api.openweathermap.org/data/2.5/weather?lat={config.latitude}&lon={config.longitude}&appid={config.openweathermap_api_key}&units=metric"
+        url = f"http://api.openweathermap.org/data/2.5/weather?lat={config.latitude}&lon={config.longitude}&appid={openweathermap_api_key}&units=metric"
         response = requests.get(url)
         weather_data = response.json()
         self.outside_temp = weather_data['main']['temp']
@@ -126,24 +127,28 @@ def run_live_control(check_interval: int = 60):
     epsilon = 0.1  # Small exploration rate for live use case
     q_table = q_tables[0]  # Select Q-table for the robot
 
-    for hour in range(24):  # Simulating for 24 hours
-        room.get_outside_weather()  # Fetch real-time weather
-        room.adjust_ideal_temperature()  # Adjust ideal temp based on weather
-        state = room.get_state()
-        action = choose_action(q_table, state, epsilon)
-        new_state, reward = room.perform_action(action)
+    try:
+        for hour in range(24):  # Simulating for 24 hours
+            room.get_outside_weather()  # Fetch real-time weather
+            room.adjust_ideal_temperature()  # Adjust ideal temp based on weather
+            state = room.get_state()
+            action = choose_action(q_table, state, epsilon)
+            new_state, reward = room.perform_action(action)
 
-        actions = ["No change", "Very slight increase", "Slight increase", "Moderate increase", 
-                   "Very slight decrease", "Slight decrease", "Moderate decrease"]
+            actions = ["No change", "Very slight increase", "Slight increase", "Moderate increase", 
+                       "Very slight decrease", "Slight decrease", "Moderate decrease"]
 
-        # Log action and state every hour
-        log_results(hour, room.temperature, room.outside_temp, room.humidity, actions[action], reward, room.energy_cost)
+            # Log action and state every hour
+            log_results(hour, room.temperature, room.outside_temp, room.humidity, actions[action], reward, room.energy_cost)
 
-        # Wait for the next check based on the interval set (in minutes)
-        time.sleep(check_interval * 60)  # Sleep for x minutes before the next check
+            # Wait for the next check based on the interval set (in minutes)
+            time.sleep(check_interval * 60)  # Sleep for x minutes before the next check
 
-    logging.info("Live control completed.")
+    except KeyboardInterrupt:
+        logging.info("Live control interrupted by user.")
+
+    finally:
+        logging.info("Live control completed.")
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     run_live_control(check_interval=5)  # Check every 5 minutes
